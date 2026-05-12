@@ -1,0 +1,73 @@
+{
+  "projectType": "ai-ml",
+  "projectName": "Gemini File Search for RAG",
+  "projectDescription": "A codelab demonstrating how to use Gemini File Search to enable Retrieval-Augmented Generation (RAG) in agentic applications built with the Google Agent Development Kit (ADK), without managing embeddings or vector databases.",
+  "theme": "palm",
+  "primaryColor": "#646c74",
+  "lightColor": "#ef8820",
+  "darkColor": "#2b93a2",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Codelab",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "prerequisites"
+            ]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "concepts/rag-overview",
+              "concepts/gemini-file-search"
+            ]
+          },
+          {
+            "group": "Building Agents",
+            "pages": [
+              "agents/basic-sdk-agent",
+              "agents/file-search-store",
+              "agents/sdk-rag-agent",
+              "agents/basic-adk-agent",
+              "agents/rag-adk-agent"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/project-structure",
+              "reference/environment-setup",
+              "reference/make-commands",
+              "reference/troubleshooting"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Managed RAG with no vector database setup required",
+    "Gemini File Search Store for document ingestion and indexing",
+    "Agent-as-a-Tool pattern for combining Google Search and File Search",
+    "Google Agent Development Kit (ADK) multi-agent orchestration",
+    "Jupyter notebook for managing File Search Stores",
+    "Support for PDF, DOCX, Markdown, CSV, JSON and many more document types",
+    "Custom metadata tagging for uploaded files",
+    "ADK Web UI for interactive agent testing"
+  ],
+  "publicApiSurface": [
+    "genai.Client()",
+    "client.file_search_stores.list()",
+    "types.Tool(file_search=types.FileSearch(file_search_store_names=[...]))",
+    "types.Tool(google_search=types.GoogleSearch())",
+    "FileSearchTool(file_search_store_names=[...])",
+    "Agent(model, name, description, instruction, tools=[...])",
+    "AgentTool(agent=search_agent)",
+    "google.adk.tools.google_search",
+    "adk web app --port 8501 --reload_agents",
+    "make install / make sdk-agent / make sdk-rag-agent / make adk-playground"
+  ]
+}

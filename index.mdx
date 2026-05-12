@@ -1,133 +1,66 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
-icon: 'star'
+title: "Gemini File Search for RAG: no vector databases needed"
+description: "Learn how to use Gemini File Search to add Retrieval-Augmented Generation to your agentic apps. No embeddings, no vector databases, no infrastructure to manage."
 ---
 
-## Setting up
+This codelab walks you through building RAG-powered agents using **Gemini File Search** — Google's fully-managed retrieval system built directly into the Gemini API. You'll go from a baseline agent with no knowledge of your data, to a multi-agent system that can query your bespoke documents alongside live Google Search — all without writing a single line of embedding code.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Introduction" icon="book-open" href="/introduction">
+    What this codelab covers and what you'll build by the end
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Prerequisites" icon="list-check" href="/prerequisites">
+    Set up your Google Cloud project, clone the repo, and get your API key
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="What is RAG?" icon="brain" href="/concepts/rag-overview">
+    Understand why RAG matters and how Gemini File Search simplifies it
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Gemini File Search" icon="magnifying-glass" href="/concepts/gemini-file-search">
+    Explore how the File Search Store works and what document types it supports
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What you'll build
 
-Everything you need to create world-class documentation.
+By the end of this codelab, you'll have a multi-agent system that:
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+- Uses **Gemini File Search** to answer questions about your bespoke documents
+- Falls back to **Google Search** for general knowledge queries
+- Is built on the **Google Agent Development Kit (ADK)** for clean, extensible structure
+- Can be explored interactively through the **ADK Web UI**
 
-## Make your content agent ready
+<Steps>
+  <Step title="Build the baseline agent">
+    Start with a simple Gemini SDK agent that uses Google Search. Prove it cannot answer questions about your custom documents.
+  </Step>
+  <Step title="Create a File Search Store">
+    Use a Jupyter notebook to create a Gemini File Search Store and upload your documents. No chunking, embedding, or vector DB needed.
+  </Step>
+  <Step title="Add RAG to your agent">
+    Attach the File Search Store as a tool. Watch the agent correctly answer questions it previously had no knowledge of.
+  </Step>
+  <Step title="Migrate to ADK and combine tools">
+    Convert your agent to ADK, then combine File Search and Google Search in a multi-agent system using the Agent-as-a-Tool pattern.
+  </Step>
+</Steps>
 
-Make your docs work for humans and AI agents alike.
+## The approach
 
-<Columns cols={2}>
-  <Card
-    title="Prompt component"
-    icon="robot"
-    href="/agent-ready/prompt"
-  >
-    Embed shareable AI prompts readers can copy or open in Cursor.
+<CardGroup cols={2}>
+  <Card title="Basic SDK agent" icon="robot" href="/agents/basic-sdk-agent">
+    A minimal agent using the raw Google Gen AI SDK with Google Search
   </Card>
-  <Card
-    title="Visibility"
-    icon="eye"
-    href="/agent-ready/visibility"
-  >
-    Show different content to humans and agents reading your docs.
+  <Card title="File Search Store setup" icon="database" href="/agents/file-search-store">
+    Create and populate a File Search Store via Jupyter notebook
   </Card>
-  <Card
-    title="Contextual menu"
-    icon="bolt"
-    href="/agent-ready/contextual"
-  >
-    Give readers one-click access to Claude, ChatGPT, Cursor, and more.
+  <Card title="SDK RAG agent" icon="file-magnifying-glass" href="/agents/sdk-rag-agent">
+    Attach the File Search Store to your SDK agent for RAG capability
   </Card>
-  <Card
-    title="AI coding tools"
-    icon="wand-magic-sparkles"
-    href="/ai-tools/claude-code"
-  >
-    Set up Claude Code, Cursor, or Windsurf with Mintlify's skill.
+  <Card title="Multi-agent ADK system" icon="sitemap" href="/agents/rag-adk-agent">
+    Build a full multi-agent ADK system with both RAG and Google Search
   </Card>
-</Columns>
+</CardGroup>
 
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Note>
+This codelab is designed to run in **Google Cloud Shell Editor** or any local Python 3.12+ environment. Costs are minimal — completing the lab is expected to cost at most a few pennies.
+</Note>

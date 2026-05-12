@@ -1,0 +1,47 @@
+---
+title: "Introduction: RAG with Gemini File Search and ADK agents"
+description: "Learn how Gemini File Search simplifies RAG for agentic apps — no vector databases, no embedding pipelines, just your files and the Gemini API."
+---
+
+This codelab is a hands-on guide from Google that shows you how to build Retrieval-Augmented Generation (RAG) into an agentic application using **Gemini File Search** and the **Google Agent Development Kit (ADK)**. Rather than standing up a vector database or writing chunking and embedding code yourself, you'll delegate all of that to Gemini File Search — a fully-managed RAG system built directly into the Gemini API. By the end, you'll have a working multi-agent system that queries your own documents alongside live Google Search results.
+
+## What you'll learn
+
+- The basics of RAG and why it matters for grounding language models in your own data
+- What Gemini File Search is and the advantages it offers over a self-managed RAG stack
+- How to create a File Search Store and upload your own documents to it
+- How to attach the Gemini File Search Tool to an agent for RAG capability
+- The benefits of the Google Agent Development Kit (ADK) for structuring agentic systems
+- How to build an ADK agent that uses the Gemini File Search Tool
+- How to combine the Gemini File Search Tool with Google Search using the Agent-as-a-Tool pattern
+
+## What you'll do
+
+<Steps>
+  <Step title="Set up your environment">
+    Create a Google Cloud project and configure your development environment with the required dependencies and API key.
+  </Step>
+  <Step title="Build a baseline agent">
+    Create a simple Gemini-based agent using the Google Gen AI SDK with Google Search, but no RAG capability. Demonstrate its inability to answer questions about your bespoke documents.
+  </Step>
+  <Step title="Create a File Search Store">
+    Use a Jupyter notebook to create and manage a Gemini File Search Store. Upload custom content — no chunking, embedding model selection, or vector database required.
+  </Step>
+  <Step title="Add RAG to the agent">
+    Create a new agent with the File Search Store attached as a tool. Prove it can now answer questions it previously had no knowledge of.
+  </Step>
+  <Step title="Convert to an ADK agent">
+    Migrate the basic agent to an ADK agent with Google Search. Test it using the ADK Web UI.
+  </Step>
+  <Step title="Combine File Search and Google Search">
+    Incorporate the File Search Store into the ADK agent using the Agent-as-a-Tool pattern, so the agent can use both tools in the same session.
+  </Step>
+</Steps>
+
+## About this codelab
+
+This codelab was authored by Darren "Dazbo" Lester and is published on [Google Codelabs](https://codelabs.developers.google.com/gemini-file-search-for-rag). It uses a sample story — _"The Wormhole Incursion"_ — as a stand-in for bespoke private knowledge that Gemini cannot answer questions about without RAG. The story lives in `data/story.md` in the demo repository and contains specific facts about fictional characters and starships that no public search engine or language model training set would know.
+
+<Note>
+  Completing this codelab is not expected to incur significant cost. The only billable operation is creating embeddings at upload time, which costs $0.15 per 1 million tokens. Storing and querying the embeddings is free.
+</Note>

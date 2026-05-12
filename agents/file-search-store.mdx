@@ -1,0 +1,120 @@
+---
+title: "Create and populate a Gemini File Search Store with files"
+description: "Use a Jupyter notebook to create a fully-managed File Search Store and upload your bespoke documents — no vector database required."
+---
+
+A **File Search Store** is a fully-managed container for your document embeddings, built into the Gemini API itself. When you upload files to a store, Gemini handles chunking, embedding, and vector indexing automatically — you never have to choose an embedding model or provision a vector database. This page walks through the `notebooks/file_search_store.ipynb` Jupyter notebook, which you run once (and re-run whenever your source documents change) to create the store and populate it with your content.
+
+<Tip>
+  A Jupyter notebook is an ideal tool for store management because it's interactive, runs on-demand, and keeps setup code separate from your deployed agent. You don't need to embed store-creation logic into your production application.
+</Tip>
+
+## Prerequisites
+
+Make sure your `.env` file contains the three environment variables the notebook reads:
+
+```text .env
+export GEMINI_API_KEY="your-api-key"
+export MODEL="gemini-2.5-flash"
+export STORE_NAME="demo-file-store"
+```
+
+`STORE_NAME` is the human-readable display name used to look up the store in both the notebook and the RAG agent. Keep it consistent across both.
+
+## The sample data
+
+The repo includes `data/story.md` — a short science-fiction story called _"The Wormhole Incursion"_, co-written with Gemini. It features Commander Dazbo and a squadron of sentient starships with names like "Too Many Pies". This file is the bespoke knowledge base used throughout the codelab; it contains specific facts that Gemini cannot find via web search.
+
+## Running the notebook cell by cell
+
+Open `notebooks/file_search_store.ipynb` in your editor (Cloud Shell Editor, VS Code, or Jupyter). Run each cell in order.
+
+<Steps>
+  <Step title="Run the Setup cell">
+    The first cell imports the libraries the notebook depends on:
+
+    ```python
+    import logging
+    import os
+    import pathlib
+
+    from dotenv import load_dotenv
+    from google import genai
+    from google.genai import types
+    ```
+
+    If you haven't run a notebook before, VS Code or Cloud Shell Editor will prompt you to install notebook extensions and select a kernel. Choose **Python environments…** and then the local `.venv` created when you ran `make install`.
+  </Step>
+  <Step title="Load environment variables">
+    The **Local Only** cell calls `load_dotenv()` to read your `.env` file and pull `GEMINI_API_KEY`, `MODEL`, and `STORE_NAME` into the process environment. These same variable names are used by the SDK agents, so a single `.env` file configures everything.
+  </Step>
+  <Step title="Initialize the Gemini Gen AI Client">
+    ```python
+    client = genai.Client()
+    ```
+
+    As with the SDK agents, `genai.Client()` picks up `GEMINI_API_KEY` automatically from the environment.
+  </Step>
+  <Step title="Define the get_store helper">
+    This function looks up an existing store by its display name. It is used in both the notebook and `app/sdk_rag_agent.py`:
+
+    ```python app/sdk_rag_agent.py
+    def get_store(client: genai.Client, store_name: str) -> types.FileSearchStore | None:
+        """Retrieve a store by display name"""
+        try:
+            for a_store in client.file_search_stores.list():
+                if a_store.display_name == store_name:
+                    return a_store
+        except Exception as e:
+            logger.error(f"Error listing stores: {e}")
+        return None
+    ```
+
+    The function iterates over all stores in the project and returns the first one whose `display_name` matches the value you passed in. It returns `None` if no match is found.
+  </Step>
+  <Step title="Create the store">
+    Run the cell that creates the File Search Store. This step only needs to happen once. The creation call uses the `STORE_NAME` value from your environment as the store's display name.
+
+    <Warning>
+      If you run this cell a second time it will attempt to create a second store with the same display name. Display names are not globally unique, so you'll end up with duplicates. The `get_store` function returns the first match, which may not be the one you intended. Only run the creation cell once.
+    </Warning>
+  </Step>
+  <Step title="Inspect the empty store">
+    The **View Store** cell calls `get_store(client, STORE_NAME)` and prints the store's metadata. At this point the document count should be **0** — the store exists but contains no files yet.
+  </Step>
+  <Step title="Set the upload path">
+    A short cell sets the upload path to the `data/` folder:
+
+    ```python
+    upload_path = pathlib.Path("data/")
+    ```
+
+    All files in this folder are candidates for upload in the next step.
+  </Step>
+  <Step title="Define upload utility functions">
+    The next cell defines the functions that upload files to the store. Notably, it also uses Gemini to extract metadata (such as title, author, and topic tags) from each file before uploading. That metadata is stored alongside the embeddings so you can filter by it at query time.
+  </Step>
+  <Step title="Upload data/story.md">
+    Run the final upload cell to push `data/story.md` into the store. The notebook checks whether a file with the same name already exists in the store; if it does, the existing version is deleted before the new one is uploaded. You should see a confirmation message when the upload completes.
+
+    Once uploaded, run the **View Store** cell again — you'll now see 1 document in the store, ready to be queried.
+  </Step>
+</Steps>
+
+## How the File Search tool is constructed from the store
+
+After the store is populated, your agent retrieves it by display name and wraps it in a `FileSearch` tool:
+
+```python app/sdk_rag_agent.py
+file_search_tool = types.Tool(file_search=types.FileSearch(file_search_store_names=[store.name]))
+```
+
+`store.name` is the resource name (not the display name) — a unique identifier in the form `filestores/abc123`. Passing it inside `file_search_store_names` tells Gemini which store to search when the agent needs to ground a response.
+
+<Note>
+  You can point a single `FileSearch` tool at multiple stores by adding more entries to the `file_search_store_names` list. For this codelab, one store is sufficient.
+</Note>
+
+## Next step
+
+With the store created and `data/story.md` uploaded, you're ready to build the RAG agent that queries it. Head to the next page to see how `app/sdk_rag_agent.py` uses the File Search tool to answer questions the basic agent could not.

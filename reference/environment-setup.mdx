@@ -1,0 +1,103 @@
+---
+title: "Configure environment variables and your Gemini API key"
+description: "How to obtain a Gemini API key, configure the three required environment variables, and load them before running any agent in the codelab."
+---
+
+Every agent in this codelab reads its configuration from environment variables at startup. Setting these variables correctly — particularly `GEMINI_API_KEY` — is a prerequisite for running any of the SDK or ADK agents. This page walks you through obtaining an API key, creating your `.env` file, and loading the variables into your shell.
+
+## Environment variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GEMINI_API_KEY` | Yes | — | Your Gemini API key from Google AI Studio. The SDK reads this automatically via `genai.Client()`. |
+| `MODEL` | No | `gemini-2.5-flash` | The Gemini model ID to use across all agents. |
+| `STORE_NAME` | No | `demo-file-store` | The display name of the File Search Store to attach to RAG agents. Must match the name you used when creating the store in the notebook. |
+
+<Warning>
+`GEMINI_API_KEY` must be set before running any agent. Every agent creates a `genai.Client()` on startup, which requires the key to be present in the environment.
+</Warning>
+
+## Getting a Gemini API key
+
+The Gemini File Search tool requires the Gemini Developer API, which uses an API key rather than service-account credentials.
+
+<Steps>
+  <Step title="Open Google AI Studio">
+    Go to [Google AI Studio](https://aistudio.google.com/) and sign in with your Google account.
+  </Step>
+  <Step title="Create an API key">
+    Follow the steps in the [API key guide](https://ai.google.dev/gemini-api/docs/api-key) to generate a key for your Google Cloud project.
+  </Step>
+  <Step title="Copy and keep the key safe">
+    Copy the key immediately after it is displayed. Store it somewhere secure — treat it like a password.
+  </Step>
+</Steps>
+
+## Creating your `.env` file
+
+The repository ships with `.env.template` as a starting point. Copy it to `.env` and fill in your values.
+
+<Steps>
+  <Step title="Copy the template">
+    ```bash
+    cp .env.template .env
+    ```
+  </Step>
+  <Step title="Edit the file">
+    Open `.env` in your editor. The template contains:
+
+    ```bash
+    export GEMINI_API_KEY="your-api-key"
+    export MODEL="gemini-2.5-flash"
+    export STORE_NAME="demo-file-store"
+    ```
+
+    Replace `your-api-key` with your actual Gemini API key. Adjust `MODEL` and `STORE_NAME` if needed.
+  </Step>
+  <Step title="Load the variables">
+    Run the following command in the same terminal session you will use to run the agents:
+
+    ```bash
+    source .env
+    ```
+
+    You must re-run `source .env` in any new terminal session before running an agent.
+  </Step>
+</Steps>
+
+<Note>
+`.env` is listed in `.gitignore`. Never commit a file containing a real API key to version control.
+</Note>
+
+## What happens when `STORE_NAME` is not set or the store is not found
+
+Both `sdk_rag_agent.py` and `rag_agent_adk/agent.py` perform a graceful fallback rather than crashing when the File Search Store is unavailable.
+
+- If `STORE_NAME` is not set at all, the agents log:
+  ```text
+  WARNING - STORE_NAME env var not set. Skipping store lookup.
+  ```
+  and disable RAG capabilities for that session.
+
+- If `STORE_NAME` is set but no store with that display name exists, the agents log:
+  ```text
+  WARNING - Store '<name>' not found! RAG capabilities disabled.
+  ```
+  and continue running without the File Search tool attached.
+
+<Tip>
+If the RAG agent starts successfully but cannot answer questions about the story, check that `STORE_NAME` matches the display name you used when creating the store in `notebooks/file_search_store.ipynb`. Display names are case-sensitive.
+</Tip>
+
+## `MODEL` variable
+
+All agents fall back to `gemini-2.5-flash` when `MODEL` is not set. To use a different model, set the variable before sourcing:
+
+```bash
+export MODEL="gemini-2.5-flash"
+source .env
+```
+
+<Note>
+The model must support the tools you intend to use. File Search and Google Search are supported on current Gemini 2.x models. If you see a "model not found" error, verify the model ID is correct.
+</Note>

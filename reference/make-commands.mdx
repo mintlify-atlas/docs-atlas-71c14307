@@ -1,0 +1,168 @@
+---
+title: "Available make commands for running and testing agents"
+description: "Every Makefile target in the project: what it does, the underlying uv command it runs, and when to use each one during the codelab."
+---
+
+The project ships a `Makefile` that wraps common `uv` commands into short, memorable targets. Instead of memorising exact flags and module paths, you run `make <target>`. This page documents every target, the full underlying command it executes, and when you need it.
+
+<Note>
+`make` is available on Linux, macOS, and Windows Subsystem for Linux (WSL). If you are on Windows without WSL, use the underlying `uv run` commands shown under each target.
+</Note>
+
+## Full Makefile
+
+```makefile
+# Install dependencies using uv package manager
+install:
+	@command -v uv >/dev/null 2>&1 || { echo "uv is not installed. Installing uv..."; curl -LsSf https://astral.sh/uv/0.8.13/install.sh | sh; source $HOME/.local/bin/env; }
+	uv sync --extra jupyter
+
+# Launch local dev playground
+adk-playground:
+	@echo "==============================================================================="
+	@echo "| 🚀 Starting your agent playground...                                        |"
+	@echo "==============================================================================="
+	uv run adk web app --port 8501 --reload_agents
+
+# Run the SDK agent (Google Search only)
+sdk-agent:
+	uv run python app/sdk_agent.py
+
+# Run the SDK RAG agent (File Search + Google Search)
+sdk-rag-agent:
+	uv run python app/sdk_rag_agent.py
+
+# Run code quality checks (codespell, ruff, mypy)
+lint:
+	uv sync --dev --extra lint
+	uv run codespell
+	uv run ruff check . --diff
+	uv run ruff format . --check --diff
+	uv run mypy .
+```
+
+---
+
+## `make install`
+
+Installs all project dependencies using `uv`. If `uv` is not present on the system, the target installs it automatically before syncing packages. This is always the first command to run in a new environment.
+
+<CodeGroup>
+
+```bash make
+make install
+```
+
+```bash uv (direct)
+uv sync --extra jupyter
+```
+
+</CodeGroup>
+
+The `--extra jupyter` flag includes the optional `jupyter` and `ipython` packages needed to run `notebooks/file_search_store.ipynb`. The virtual environment is created at `.venv/` in the project root.
+
+<Tip>
+Run `make install` before opening the Jupyter notebook. The notebook's kernel selection dialog expects a `.venv` Python environment, which only exists after `make install` completes.
+</Tip>
+
+---
+
+## `make sdk-agent`
+
+Runs the baseline SDK agent (`app/sdk_agent.py`). This agent uses Google Search only — there is no RAG. Use it to establish a baseline before introducing the File Search tool.
+
+<CodeGroup>
+
+```bash make
+make sdk-agent
+```
+
+```bash uv (direct)
+uv run python app/sdk_agent.py
+```
+
+</CodeGroup>
+
+The agent opens an interactive REPL. Type `exit` or `quit` to stop it.
+
+---
+
+## `make sdk-rag-agent`
+
+Runs the SDK RAG agent (`app/sdk_rag_agent.py`). This agent attaches the Gemini File Search tool to the chat session using the store identified by `STORE_NAME`. Run this after completing the notebook to create and populate your File Search Store.
+
+<CodeGroup>
+
+```bash make
+make sdk-rag-agent
+```
+
+```bash uv (direct)
+uv run python app/sdk_rag_agent.py
+```
+
+</CodeGroup>
+
+<Warning>
+`STORE_NAME` must be set in your environment before running this command. If the store is not found, the agent starts without RAG capabilities. See [Environment variables](/reference/environment-setup) for setup instructions.
+</Warning>
+
+---
+
+## `make adk-playground`
+
+Launches the ADK web UI on port 8501. The ADK runner scans the `app/` directory, discovers all modules that expose a `root_agent`, and makes them available in a dropdown in the browser interface. Use this to test both `basic_agent_adk` and `rag_agent_adk` without writing any frontend code.
+
+<CodeGroup>
+
+```bash make
+make adk-playground
+```
+
+```bash uv (direct)
+uv run adk web app --port 8501 --reload_agents
+```
+
+</CodeGroup>
+
+Once the server is ready:
+
+- **Locally**: open `http://127.0.0.1:8501` in your browser.
+- **Cloud Shell**: click **Web Preview** in the Cloud Shell Editor toolbar and change the port to `8501`.
+
+The `--reload_agents` flag causes the ADK runner to reload agent modules when source files change, which is useful during development.
+
+---
+
+## `make lint`
+
+Runs the full suite of code quality checks. This target first syncs the `lint` optional dependency group (which includes `ruff`, `mypy`, `codespell`, and type stubs), then runs each tool in sequence.
+
+<CodeGroup>
+
+```bash make
+make lint
+```
+
+```bash uv (direct)
+uv sync --dev --extra lint
+uv run codespell
+uv run ruff check . --diff
+uv run ruff format . --check --diff
+uv run mypy .
+```
+
+</CodeGroup>
+
+The four checks that run:
+
+| Tool | What it checks |
+|------|---------------|
+| `codespell` | Common spelling mistakes in source files |
+| `ruff check` | Linting rules: pycodestyle, pyflakes, isort, flake8-bugbear, and more |
+| `ruff format` | Code formatting (equivalent to `black`) |
+| `mypy` | Static type checking |
+
+<Note>
+Jupyter notebooks (`*.ipynb`) are excluded from both `ruff` and `mypy` checks via the `pyproject.toml` configuration.
+</Note>

@@ -1,0 +1,90 @@
+---
+title: "What is Retrieval-Augmented Generation (RAG) for agents?"
+description: "RAG grounds LLMs in your data by fetching context on demand. Learn why it beats context-stuffing and how Gemini File Search simplifies RAG implementation."
+---
+
+Large language models like Gemini are remarkably capable, but they work from a fixed snapshot of the world captured at training time. The moment you need answers about last quarter's financials, your internal runbooks, or a proprietary story your team wrote last week, that snapshot comes up empty — or worse, the model fabricates a confident-sounding answer. Retrieval Augmented Generation (RAG) is the standard architectural pattern for solving this problem: instead of hoping the model already knows the answer, you fetch the relevant facts first and hand them to the model alongside the question.
+
+## Why LLMs fall short on their own
+
+Three structural limitations drive the need for RAG:
+
+<CardGroup cols={3}>
+  <Card title="Always out of date" icon="clock">
+    Models only know what they learned during training. Anything that happened after the training cutoff simply doesn't exist to them.
+  </Card>
+  <Card title="No proprietary knowledge" icon="lock">
+    They have broad general knowledge, but they haven't read your internal documents, your blogs, or your Jira tickets.
+  </Card>
+  <Card title="Hallucination" icon="triangle-alert">
+    When asked something they don't know, models often produce incorrect answers delivered with complete confidence — no caveat, no uncertainty.
+  </Card>
+</CardGroup>
+
+## Why dumping everything into the context doesn't scale
+
+A naive fix is to paste all your documents directly into the conversation context. For a small, stable knowledge base this can work, but it falls apart quickly as the amount of content grows:
+
+<AccordionGroup>
+  <Accordion title="Latency">
+    Every token in the context must be processed on every request. The more you stuff in, the slower the response — and that slowness compounds across every user interaction.
+  </Accordion>
+  <Accordion title="Signal rot (lost-in-the-middle)">
+    Models struggle to distinguish relevant signal from noise when the context is dense. Studies consistently show that information buried in the middle of a long context is disproportionately ignored, a phenomenon sometimes called "lost-in-the-middle."
+  </Accordion>
+  <Accordion title="Cost">
+    Tokens cost money. A bloated context means paying for thousands of irrelevant tokens on every single query, even when most of that content has nothing to do with the question being asked.
+  </Accordion>
+  <Accordion title="Context window exhaustion">
+    Every model has a finite context window. Once you exceed it, the model cannot process the request at all. For large knowledge bases, this ceiling is easy to hit.
+  </Accordion>
+</AccordionGroup>
+
+## How RAG solves the problem
+
+RAG takes a different approach: instead of loading everything upfront, it retrieves only the chunks most relevant to the current question and provides those to the model. This **grounds the model in your reality** without flooding the context with noise.
+
+The process works in two stages — an offline indexing stage and an online retrieval stage:
+
+### Offline: indexing your documents
+
+```text
+Raw documents → Chunking → Embedding model → Vector database
+```
+
+1. **Chunking** — source documents (PDFs, markdown, HTML, etc.) are split into smaller pieces sized so each chunk covers one coherent idea.
+2. **Embedding** — each chunk is converted to a high-dimensional vector that encodes its semantic meaning using an embedding model.
+3. **Storing and indexing** — those vectors are written to a vector database (Pinecone, Weaviate, Postgres with pgvector, etc.) that supports fast similarity search.
+
+### Online: answering a query
+
+```text
+User question → Embed query → Similarity search → Retrieve top-k chunks → LLM prompt → Answer
+```
+
+When a question arrives, it is embedded using the same model, and the database returns the most semantically similar chunks. Only those chunks — typically a handful — are inserted into the model's context alongside the question.
+
+<Note>
+  The quality of a RAG system depends heavily on the quality of the chunking strategy and the embedding model. Poorly chunked documents or a weak embedding model will surface irrelevant context and degrade answer quality.
+</Note>
+
+## The traditional RAG implementation burden
+
+Implementing RAG the traditional way means making a series of infrastructure decisions before you write a single line of application logic:
+
+- Choosing and provisioning a vector database
+- Writing a chunking pipeline tailored to your document types
+- Selecting and calling an embedding model
+- Managing the pipeline when source documents change
+
+For a production system this overhead is manageable, but for a prototype or a team that wants to move fast it is a significant drag.
+
+## A simpler path: Gemini File Search
+
+Gemini File Search abstracts the entire indexing pipeline into a single managed service that is built directly into the Gemini API. You upload your files; Gemini handles the chunking, the embedding model selection, the vector storage, and the indexing. The resulting File Search Store is then attached to your agent as a tool — no separate infrastructure to provision or maintain.
+
+<Tip>
+  Because storing and querying embeddings in a File Search Store is free, you can experiment with different document sets without worrying about cost during development.
+</Tip>
+
+The next page covers Gemini File Search in detail: what it is, what file types it supports, how data is stored, and the two phases of using it in an agentic application.

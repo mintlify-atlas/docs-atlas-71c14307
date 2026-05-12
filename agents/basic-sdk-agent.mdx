@@ -1,0 +1,203 @@
+---
+title: "Build a baseline Gemini SDK agent with Google Search"
+description: "Create a minimal Gemini agent using the Gen AI SDK with the Google Search tool — and see why search alone isn't enough for bespoke knowledge."
+---
+
+Before adding RAG, it's worth understanding what a Gemini agent looks like without it. This page walks through `app/sdk_agent.py` — a minimal agent built directly on the `google-genai` SDK that attaches the native Google Search tool to a Gemini chat session. Running this agent first establishes a clear baseline: it handles general web-searchable questions well, but it has no knowledge of your custom documents, so questions about bespoke content will either fail or hallucinate.
+
+## The code
+
+```python app/sdk_agent.py
+"""
+Native SDK Basic Agent (Google Search Only)
+
+This script demonstrates a minimal "Agent" using the raw Google Gen AI SDK.
+
+WHAT:
+A simple CLI chatbot that uses Gemini 2.5 Flash and the native Google Search tool.
+
+WHY:
+To establish a baseline for "native" (non-framework) implementation. It highlights
+how easy it is to attach the `GoogleSearch` tool to a model.
+
+HOW:
+1.  Instantiates `genai.Client()`.
+2.  Creates a chat session with `config=types.GenerateContentConfig(tools=[...])`.
+3.  Uses the built-in `types.GoogleSearch()` tool.
+4.  Runs a simple REPL loop for user interaction.
+"""
+
+import logging
+import os
+
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+
+def main():
+    """
+    Runs a simple interactive chat with Gemini using the Google Search tool.
+    """
+    # 1. Initialize the client
+    client = genai.Client()
+
+    # 2. Add Google Search tool
+    google_search_tool = types.Tool(google_search=types.GoogleSearch())
+
+    # 3. Create the chat session
+    model_id = os.getenv("MODEL", "gemini-2.5-flash")
+    logger.info(f"Starting chat with model: {model_id}")
+
+    chat = client.chats.create(
+        model=model_id,
+        config=types.GenerateContentConfig(
+            tools=[google_search_tool],
+            temperature=0.7,  # slightly creative but grounded
+        ),
+    )
+
+    print(f"--- Simple Agent (Model: {model_id}) ---")
+    print("Type 'exit' or 'quit' to stop.")
+    print("------------------------------------------")
+
+    while True:
+        try:
+            user_input = input("User: ").strip()
+            if user_input.lower() in ("exit", "quit"):
+                print("Goodbye!")
+                break
+            if not user_input:
+                continue
+
+            # 4. Send message and get response
+            response = chat.send_message(user_input)
+
+            # 5. Print response
+            if response.text:
+                print(f"Agent: {response.text}")
+            else:
+                print("Agent: [No text response]")
+
+        except Exception as e:
+            logger.error(f"An error occurred: {e}")
+            print(f"Error: {e}")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+## Code walkthrough
+
+Each of the four steps in `main()` has a distinct job.
+
+### Step 1 — Initialize the client
+
+```python app/sdk_agent.py
+client = genai.Client()
+```
+
+`genai.Client()` reads `GEMINI_API_KEY` from the environment (loaded via `load_dotenv()`) and creates the top-level client you use to access all Gemini API resources — models, chats, and later, file search stores.
+
+### Step 2 — Attach the Google Search tool
+
+```python app/sdk_agent.py
+google_search_tool = types.Tool(google_search=types.GoogleSearch())
+```
+
+`types.GoogleSearch()` is the built-in grounding tool that allows Gemini to issue live web searches when it needs up-to-date information. Wrapping it in `types.Tool(...)` produces the object that the chat session config accepts.
+
+### Step 3 — Create the chat session
+
+```python app/sdk_agent.py
+chat = client.chats.create(
+    model=model_id,
+    config=types.GenerateContentConfig(
+        tools=[google_search_tool],
+        temperature=0.7,
+    ),
+)
+```
+
+`client.chats.create(...)` opens a stateful multi-turn conversation. Passing `tools=[google_search_tool]` inside `GenerateContentConfig` makes Google Search available for every turn of the conversation. The `MODEL` environment variable controls which Gemini model is used; it falls back to `gemini-2.5-flash` if unset.
+
+### Step 4 — REPL loop
+
+```python app/sdk_agent.py
+while True:
+    user_input = input("User: ").strip()
+    if user_input.lower() in ("exit", "quit"):
+        print("Goodbye!")
+        break
+    if not user_input:
+        continue
+
+    response = chat.send_message(user_input)
+
+    if response.text:
+        print(f"Agent: {response.text}")
+    else:
+        print("Agent: [No text response]")
+```
+
+A simple read-evaluate-print loop. Each call to `chat.send_message(user_input)` sends the user's message and receives the model's reply. Because the session is stateful, Gemini maintains the full conversation history across turns.
+
+## Running the agent
+
+<CodeGroup>
+
+```bash make
+make sdk-agent
+```
+
+```bash uv
+uv run python app/sdk_agent.py
+```
+
+</CodeGroup>
+
+## Demo walkthrough
+
+<Steps>
+  <Step title="Ask a web-searchable question">
+    Try a question Gemini can answer via Google Search:
+
+    ```text
+    > What is the stock price of Google?
+    ```
+
+    The agent invokes Google Search and returns the current price. This confirms the search tool is wired up correctly.
+  </Step>
+  <Step title="Ask about bespoke content">
+    Now ask a question that requires knowledge of your custom story — content Gemini has never been trained on and cannot find via web search:
+
+    ```text
+    > Who pilots the 'Too Many Pies' ship?
+    ```
+
+    The agent will either admit it doesn't know or produce a hallucinated answer. Either way, it cannot give you the correct, story-specific response.
+  </Step>
+  <Step title="Exit the agent">
+    Type `quit` or `exit` to close the session.
+
+    ```text
+    > quit
+    Goodbye!
+    ```
+  </Step>
+</Steps>
+
+## Key takeaway
+
+<Note>
+  Google Search makes this agent great at general, web-indexed knowledge. It has no mechanism to access your private or bespoke documents — that's exactly the gap Gemini File Search fills in the next steps.
+</Note>
+
+The basic agent demonstrates the ceiling of search-only grounding. When a question requires knowledge that isn't on the public web — like the contents of an internal document, a private story, or any proprietary data — the agent has nowhere to look. The next page covers how to create a File Search Store that holds that bespoke content so subsequent agents can query it.

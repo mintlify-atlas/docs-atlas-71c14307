@@ -1,0 +1,84 @@
+---
+title: "Repo structure: agents, notebooks, and configuration"
+description: "A tour of every folder and file in gemini-file-search-demo: what each agent does, how the pieces relate to each other, and which dependencies the project uses."
+---
+
+The `gemini-file-search-demo` repository is organised around a progression: you start with a minimal SDK agent that has no RAG, then layer in File Search, and finally refactor everything into the Agent Development Kit (ADK) using the Agent-as-a-Tool pattern. Understanding the layout up front makes it easier to follow each step of the codelab.
+
+## Directory tree
+
+```text
+gemini-file-search-demo/
+├── app/
+│   ├── basic_agent_adk/        # Agent with Google Search, using ADK framework
+│   │   └── agent.py
+│   ├── rag_agent_adk/          # Agent with Google Search and File Search, using ADK framework
+│   │   ├── agent.py
+│   │   └── tools_custom.py
+│   ├── sdk_agent.py            # Agent using GenAI SDK (no ADK) with Google Search tool
+│   └── sdk_rag_agent.py        # Agent using GenAI SDK (no ADK) with Gemini File Search tool
+├── data/
+│   └── story.md                # Sample story with "bespoke content" to use with Gemini File Search Store
+├── notebooks/
+│   └── file_search_store.ipynb # Jupyter notebook for creating and managing Gemini File Search Store
+├── .env.template               # Template for environment variables — make a copy as .env
+├── Makefile                    # Makefile for make commands
+├── pyproject.toml              # Project configuration and dependencies
+└── README.md
+```
+
+## Agent files
+
+Each agent in `app/` represents a distinct implementation approach. They are designed to be compared side by side.
+
+### `app/sdk_agent.py` — SDK baseline (Google Search only)
+
+The simplest possible Gemini agent. It instantiates a `genai.Client`, attaches `types.GoogleSearch()` as a tool, and runs a REPL loop. There is no RAG. Its purpose is to establish a baseline and demonstrate the model's inability to answer questions about bespoke content that is not publicly indexed.
+
+### `app/sdk_rag_agent.py` — SDK agent with File Search
+
+A direct extension of the baseline that replaces Google Search with the Gemini File Search tool. It looks up a File Search Store by the display name stored in `STORE_NAME`, attaches it via `types.FileSearch(file_search_store_names=[store.name])`, and falls back gracefully when the store is not found, logging a warning and disabling RAG rather than crashing.
+
+### `app/basic_agent_adk/agent.py` — ADK agent (Google Search only)
+
+Implements the same Google Search capability as the baseline, but using the ADK `Agent` class. It introduces the Agent-as-a-Tool pattern: a `SearchAgent` sub-agent owns the `google_search` tool, and a `root_agent` delegates to it via `AgentTool(agent=search_agent)`. A strict "fail fast" system instruction prevents infinite search retries on topics the model cannot find.
+
+### `app/rag_agent_adk/agent.py` — ADK agent with File Search and Google Search
+
+The complete multi-agent solution. A `root_agent` orchestrates two specialist sub-agents — a `SearchAgent` for general knowledge and a `RagAgent` for bespoke knowledge — each wrapped as an `AgentTool`. The root agent's instruction directs it to try `RagAgent` first. This separation is required because the Gemini API does not allow Google Search and File Search in the same single-agent request.
+
+### `app/rag_agent_adk/tools_custom.py` — `FileSearchTool` wrapper
+
+Because ADK does not yet include a built-in wrapper for the File Search tool, this module provides one. `FileSearchTool` extends `BaseTool` and implements `process_llm_request` to inject `types.FileSearch` configuration directly into the outgoing model request before it is sent. It is used exclusively by `RagAgent`.
+
+## Data and notebooks
+
+| Path | Purpose |
+|------|---------|
+| `data/story.md` | The sample story *"The Wormhole Incursion"* — bespoke content that Gemini has no training knowledge of. Used to demonstrate and verify RAG. |
+| `notebooks/file_search_store.ipynb` | Interactive notebook for creating a File Search Store, uploading files, and inspecting the store's contents. Run this before the RAG agents. |
+
+## Configuration files
+
+| File | Purpose |
+|------|---------|
+| `.env.template` | Template for the three required environment variables. Copy to `.env` and fill in your values. |
+| `Makefile` | Shorthand `make` targets for common tasks: installing dependencies, running each agent, launching the ADK web UI, and running linters. |
+| `pyproject.toml` | Project metadata, Python version constraint, and all dependencies managed by `uv`. |
+
+## Key dependencies
+
+The project requires **Python >=3.12**. Core dependencies declared in `pyproject.toml`:
+
+| Package | Role |
+|---------|------|
+| `google-genai` | Google Gen AI SDK — the low-level client used by the SDK agents |
+| `google-adk` | Agent Development Kit — `Agent`, `AgentTool`, `BaseTool`, built-in tools |
+| `google-cloud-aiplatform[adk]` | Vertex AI platform support with ADK extras |
+| `fastapi` | ASGI web framework (used internally by ADK's web server) |
+| `uvicorn` | ASGI server that backs the ADK web UI |
+
+Optional dependency groups:
+
+- `jupyter` — `jupyter` and `ipython`, needed to run `notebooks/file_search_store.ipynb`
+- `lint` — `ruff`, `mypy`, `codespell`, plus type stubs, used by `make lint`

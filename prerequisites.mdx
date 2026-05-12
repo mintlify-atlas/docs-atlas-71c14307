@@ -1,0 +1,124 @@
+---
+title: "Set up your environment for the Gemini File Search codelab"
+description: "Create a Google Cloud project, clone the demo repo, install dependencies, get a Gemini API key, and configure your environment variables."
+---
+
+Before writing any agent code, you need a Google Cloud project, the demo repository, and a Gemini API key. This page walks you through each step. The setup takes around ten minutes and uses `uv` as the Python package manager — either via `make install` if you are on Linux, macOS, or WSL, or directly via `uv sync` on Windows.
+
+<Steps>
+  <Step title="Create a Google Cloud project">
+    You need a Google Cloud project to run this codelab. You can use an existing project or [create a new one](https://console.cloud.google.com/projectcreate).
+
+    Make sure [billing is enabled](https://console.cloud.google.com/billing) on your project. See the [billing verification guide](https://docs.cloud.google.com/billing/docs/how-to/verify-billing-enabled) if you are unsure how to check the billing status.
+
+    <Note>
+      Completing this codelab is not expected to cost more than a few pennies.
+    </Note>
+  </Step>
+
+  <Step title="Clone the demo repo">
+    Run the following commands from your terminal, or from the terminal integrated into [Google Cloud Shell Editor](https://ide.cloud.google.com/). Cloud Shell is convenient because all required tools are pre-installed.
+
+    ```bash
+    git clone https://github.com/derailed-dash/gemini-file-search-demo
+    cd gemini-file-search-demo
+    ```
+
+    The repository has this structure:
+
+    ```text
+    gemini-file-search-demo/
+    ├── app/
+    │   ├── basic_agent_adk/        # Agent with Google Search, using ADK framework
+    │   │   └── agent.py
+    │   ├── rag_agent_adk/          # Agent with Google Search and File Search, using ADK framework
+    │   │   ├── agent.py
+    │   │   └── tools_custom.py
+    │   ├── sdk_agent.py            # Agent using GenAI SDK (no ADK) with Google Search tool
+    │   └── sdk_rag_agent.py        # Agent using GenAI SDK (no ADK) with Gemini File Search tool
+    ├── data/
+    │   └── story.md                # Sample story with "bespoke content" to use with Gemini File Search Store
+    ├── notebooks/
+    │   └── file_search_store.ipynb # Jupyter notebook for creating and managing Gemini File Search Store
+    │
+    ├── .env.template               # Template for environment variables - make a copy as .env
+    ├── Makefile                    # Makefile for `make` commands
+    ├── pyproject.toml              # Project configuration and dependencies
+    └── README.md                   # This file
+    ```
+
+    <Tip>
+      Open the cloned folder in Cloud Shell Editor or your preferred editor before continuing.
+    </Tip>
+  </Step>
+
+  <Step title="Set up your development environment">
+    Install the project dependencies using `uv`. The `--extra jupyter` flag includes the Jupyter kernel needed to run the notebook in a later step.
+
+    <CodeGroup>
+
+    ```bash make install
+    make install
+    ```
+
+    ```bash uv sync
+    uv sync --extra jupyter
+    ```
+
+    </CodeGroup>
+
+    <Note>
+      `make` is available on Linux, macOS, and WSL. If you are on Windows without WSL, use the `uv sync` command directly.
+    </Note>
+
+    `make install` also checks for `uv` and installs it automatically if it is not already present.
+  </Step>
+
+  <Step title="Create a Gemini API key">
+    To use the Gemini Developer API — which is required for the Gemini File Search Tool — you need a **Gemini API key**.
+
+    The easiest way to obtain one is through [Google AI Studio](https://aistudio.google.com/), which provides a convenient interface for creating and managing API keys linked to your Google Cloud project. Follow the [API key guide](https://ai.google.dev/gemini-api/docs/api-key) for the specific steps.
+
+    Once your key is created, copy it and keep it somewhere safe. You will use it in the next step.
+
+    <Warning>
+      Do not commit your API key to version control. The `.env` file used below is already listed in `.gitignore` for the demo repo.
+    </Warning>
+  </Step>
+
+  <Step title="Configure your .env file">
+    The repo includes an `.env.template` file. Copy it to a new file called `.env`:
+
+    ```bash
+    cp .env.template .env
+    ```
+
+    Open `.env` and replace `your-api-key` with your actual Gemini API key. The file should look like this:
+
+    ```bash .env
+    export GEMINI_API_KEY="your-api-key"
+    export MODEL="gemini-2.5-flash"
+    export STORE_NAME="demo-file-store"
+    ```
+
+    The three variables configure the following:
+
+    | Variable | Value | Purpose |
+    |---|---|---|
+    | `GEMINI_API_KEY` | Your API key from Google AI Studio | Authenticates requests to the Gemini Developer API |
+    | `MODEL` | `gemini-2.5-flash` | The Gemini model used by all agents in this codelab |
+    | `STORE_NAME` | `demo-file-store` | The display name for your Gemini File Search Store |
+  </Step>
+
+  <Step title="Source the .env file">
+    Load the environment variables into your shell session:
+
+    ```bash
+    source .env
+    ```
+
+    Run this command in every new terminal session before running any of the agents or notebooks. You can verify the variables are set by running `echo $GEMINI_API_KEY`.
+  </Step>
+</Steps>
+
+Your environment is now ready. Continue to the next section to build the baseline agent.

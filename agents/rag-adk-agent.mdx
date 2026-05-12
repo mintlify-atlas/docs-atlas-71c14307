@@ -1,0 +1,319 @@
+---
+title: "Combine File Search and Google Search in ADK agents"
+description: "Build a multi-agent ADK system that routes bespoke queries to a RAG specialist and general queries to Google Search using the Agent-as-a-Tool pattern."
+---
+
+This page brings everything together. You will extend the basic ADK agent into a three-agent system: a root orchestrator that delegates to a `RagAgent` (powered by Gemini File Search) and a `SearchAgent` (powered by Google Search). The key design challenge is that Gemini does not allow you to use the `FileSearch` and `GoogleSearch` tools in the same request — but the Agent-as-a-Tool pattern solves this cleanly by isolating each tool in its own specialist agent.
+
+## The tool incompatibility constraint
+
+Before diving into the code, it is important to understand the constraint that shapes the entire architecture.
+
+<Warning>
+You cannot use the native `GoogleSearch` tool and the `FileSearch` tool in the same request to the same Gemini model. Attempting to do so produces the following error:
+
+```text
+ERROR - An error occurred: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Search as a tool and file search tool are not supported together', 'status': 'INVALID_ARGUMENT'}}
+Error: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Search as a tool and file search tool are not supported together', 'status': 'INVALID_ARGUMENT'}}
+```
+</Warning>
+
+The solution is to never give both tools to the same agent. Each specialist agent receives exactly one retrieval tool, and the root agent orchestrates between them using `AgentTool` — it never calls either retrieval tool itself.
+
+## The three-agent structure
+
+`app/rag_agent_adk/agent.py` defines three agents:
+
+| Agent | Role | Tools |
+|---|---|---|
+| `SearchAgent` | General knowledge specialist | `google_search` |
+| `RagAgent` | Bespoke knowledge specialist | `FileSearchTool` (custom) |
+| `root_agent` (`rag_agent_adk`) | Orchestrator | `AgentTool(search_agent)`, `AgentTool(rag_agent)` |
+
+The root agent always tries `RagAgent` first. If the File Search Store yields no useful answer, it falls back to `SearchAgent`.
+
+## The custom `FileSearchTool`
+
+ADK ships with built-in wrappers for `google_search`, `code_execution`, and Vertex AI Search — but not yet for Gemini File Search. The `FileSearchTool` class in `app/rag_agent_adk/tools_custom.py` fills that gap.
+
+```python app/rag_agent_adk/tools_custom.py
+"""
+Defines a custom tool for running Gemini File Search (RAG) queries inside 
+the Google Agent Development Kit (ADK).
+
+What it does:
+    It acts as a middleware tool that intercepts the LLM request before it is sent
+    to the model. It injects the specific `file_search` configuration (referencing a
+    File Search Store ID) directly into the `tools` parameter of the Gemini API request.
+
+Why we need it:
+    The google.adk.tools library currently includes helpers for GoogleSearch,
+    CodeExecution, and VertexAISearch, but it does not yet have a native FileSearch wrapper.
+    We need a way to attach a persistent Gemini File Search Store (created in AI Studio)
+    to our agent. 
+
+    File Search is a server-side tool (executed by the model/Gemini API, not the client code).
+    To use it, the specific tools configuration must be present in the 
+    GenerateContentConfig of the request.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING
+
+from google.adk.tools import BaseTool, ToolContext
+from google.genai import types
+
+# We only use LlmRequest for type hints, so we can hide it from runtime
+if TYPE_CHECKING:
+    from google.adk.models import LlmRequest
+
+logger = logging.getLogger(__name__)
+
+
+class FileSearchTool(BaseTool):
+    """
+    A custom ADK tool that enables the Gemini File Search (retrieval) capability.
+    This attaches the native 'file_search' tool configuration to the model request.
+    """
+
+    def __init__(self, file_search_store_names: list[str]):
+        """
+        Initialize the FileSearchTool.
+
+        Args:
+            file_search_store_names: The resource name of the File Search Store.
+                    e.g. ["fileSearchStores/mystore-abcdef0pqrst", ...]
+        """
+        super().__init__(name="file_search", description="Retrieval from file search store")
+        self.file_search_store_names = file_search_store_names
+
+    async def process_llm_request(
+        self,
+        *,
+        tool_context: ToolContext,
+        llm_request: LlmRequest,
+    ) -> None:
+        """
+        Updates the model request configuration to include the File Search tool.
+        """
+        logger.debug(f"Attaching File Search Store: {self.file_search_store_names}")
+
+        llm_request.config = llm_request.config or types.GenerateContentConfig()
+        llm_request.config.tools = llm_request.config.tools or []
+
+        # Append the native tool configuration for File Search
+        llm_request.config.tools.append(
+            types.Tool(file_search=types.FileSearch(file_search_store_names=self.file_search_store_names))
+        )
+```
+
+### How it works
+
+`FileSearchTool` extends `BaseTool` and overrides `process_llm_request`. This method is called by the ADK runtime before every model request. It injects a `types.Tool(file_search=...)` entry directly into the `GenerateContentConfig` of the outgoing request — exactly how you would attach the tool using the raw SDK, but wired into ADK's middleware pipeline.
+
+<Note>
+`FileSearch` is a server-side tool: the Gemini model executes the retrieval against your File Search Store on Google's infrastructure. The client code only needs to declare which store to use. `process_llm_request` is the right hook because it runs before the request leaves the client, giving you the opportunity to modify the config.
+</Note>
+
+## The agent code
+
+Here is the complete `app/rag_agent_adk/agent.py`:
+
+```python app/rag_agent_adk/agent.py
+"""
+This module defines a multi-agent system using the Google Agent Development Kit (ADK).
+
+It implements a root agent ('rag_agent_adk') that orchestrates two specialized agents
+wrapped as tools:
+1. SearchAgent: A specialist for general information using Google Search.
+2. RagAgent: A specialist for bespoke information using Gemini File Search.
+
+Note: Sub-agents are wrapped in 'AgentTool' and passed via the 'tools' parameter rather
+than the 'sub_agents' list. This is a required workaround in the ADK to support the use
+of built-in tools (like google_search) within the agent hierarchy, which avoids the
+"Tool use with function calling is unsupported" error. This is the "Agent-as-a-Tool"
+pattern.
+"""
+import logging
+import os
+
+from google import genai
+from google.adk.agents import Agent
+from google.adk.tools import AgentTool, google_search
+from google.genai import types
+
+from .tools_custom import FileSearchTool
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+model_id = os.getenv("MODEL", "gemini-2.5-flash")
+logger.info(f"Using model: {model_id}")
+
+STORE_NAME = os.getenv("STORE_NAME")
+logger.info(f"Store name: {STORE_NAME}")
+
+
+# Search Specialist Agent (Google Search only)
+search_agent = Agent(
+    model=model_id,
+    name="SearchAgent",
+    description="Agent to perform Google Search",
+    instruction="You're a specialist in Google Search",
+    tools=[google_search],
+)
+
+
+def get_store_name():
+    """Retrieve the store name dynamically using a temp client."""
+    client = genai.Client()
+
+    if not client:
+        logger.error("Could not initialize GenAI client.")
+        return None
+
+    try:
+        if not STORE_NAME:
+            logger.warning("STORE_NAME env var is not set.")
+            return None
+
+        logger.info(f"Looking for File Search Store: {STORE_NAME}...")
+        for a_store in client.file_search_stores.list():
+            if a_store.display_name == STORE_NAME:
+                logger.info(f"Found store: {a_store.name}")
+                return a_store.name
+        logger.warning(f"Store '{STORE_NAME}' not found.")
+    except Exception as e:
+        logger.error(f"Error resolving store: {e}")
+
+    return None
+
+
+# RAG Specialist Agent (File Search only)
+def create_rag_agent() -> Agent:
+    store_name = get_store_name()
+    if store_name:
+        logger.info(f"Creating RagAgent connected to {store_name}")
+        instruction = """Use the file_search tool to retrieve information from the knowledge base."""
+
+        return Agent(
+            model=model_id,
+            name="RagAgent",
+            description="Agent to perform retrieval from bespoke file search store",
+            instruction=instruction,
+            tools=[FileSearchTool(file_search_store_names=[store_name])],
+        )
+    else:
+        logger.warning("No File Search Store found. RagAgent will not be available.")
+        return None
+
+
+# Root Agent Configuration
+def create_root_agent():
+
+    instruction = """You are a helpful AI assistant designed to provide accurate and useful information.
+    You have access to two specialist agents:
+    1. RagAgent: For bespoke information from the internal knowledge base.
+    2. SearchAgent: For general information from Google Search.
+
+    Always try the RagAgent first. If this fails to yield a useful answer, then try the SearchAgent.
+    """
+
+    tools = [AgentTool(agent=search_agent)]
+    rag_agent = create_rag_agent()
+    if rag_agent:
+        tools.append(AgentTool(agent=rag_agent))
+
+    return Agent(
+        name="rag_agent_adk",
+        description="A chatbot with access to Google Search and Bespoke File Search",
+        model=model_id,
+        instruction=instruction,
+        tools=tools,
+        generate_content_config=types.GenerateContentConfig(temperature=1, top_p=1, max_output_tokens=8192),
+    )
+
+root_agent = create_root_agent()
+```
+
+### Key design decisions
+
+**Factory functions** — `create_rag_agent()` and `create_root_agent()` are called at module load time. Using functions (rather than top-level statements) means the store lookup happens once on startup and errors are logged cleanly without crashing the module.
+
+**Graceful degradation** — if `get_store_name()` cannot find the store (because `STORE_NAME` is unset or the store doesn't exist), `create_rag_agent()` returns `None` and `create_root_agent()` simply omits `RagAgent` from the tools list. The system still starts with `SearchAgent` available.
+
+**`generate_content_config`** — the root agent sets explicit `temperature=1`, `top_p=1`, and `max_output_tokens=8192` to ensure consistent, full-length responses during orchestration.
+
+**`AgentTool` in `tools`, not `sub_agents`** — sub-agents that use built-in ADK tools (like `google_search`) must be passed via `tools=[AgentTool(...)]`, not the `sub_agents` list. Using `sub_agents` with built-in tools triggers an "unsupported function calling" error in ADK.
+
+## Launch the ADK Web UI
+
+<Steps>
+  <Step title="Verify your environment variables">
+    Make sure your `.env` file includes both `GEMINI_API_KEY` and `STORE_NAME`, then source it:
+
+    ```bash
+    source .env
+    ```
+
+    The `STORE_NAME` value must match the `display_name` you gave the store when you created it (e.g. `demo-file-store`).
+  </Step>
+
+  <Step title="Start the web server">
+    <CodeGroup>
+      ```bash make
+      make adk-playground
+      ```
+
+      ```bash uv run
+      uv run adk web app --port 8501 --reload_agents
+      ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Open the browser">
+    - **Local environment**: navigate to `http://127.0.0.1:8501`
+    - **Cloud Shell**: click **Web preview** in the toolbar and change the port to `8501`
+  </Step>
+
+  <Step title="Select the agent">
+    In the top-left dropdown, select **`rag_agent_adk`**.
+  </Step>
+</Steps>
+
+## Try it out
+
+### Bespoke knowledge query (uses RagAgent)
+
+Ask a question that requires knowledge of _The Wormhole Incursion_ story:
+
+```text
+Who pilots the 'Too Many Pies' ship?
+```
+
+The ADK Web UI shows the root agent delegating to `RagAgent`. The `FileSearchTool` triggers a retrieval against your File Search Store, returns the relevant chunks, and the agent produces a grounded, accurate answer.
+
+### General knowledge query (uses SearchAgent)
+
+Ask a general question that has no answer in your bespoke knowledge base:
+
+```text
+What is the capital of France?
+```
+
+`RagAgent` finds nothing relevant in the store. The root agent then delegates to `SearchAgent`, which performs a Google Search and returns the answer.
+
+<Tip>
+Watch the event trace in the ADK Web UI for both queries. You can see the root agent's routing decisions — which specialist it called first, what it returned, and whether a fallback was needed. This real-time observability is one of the most practical benefits of building with ADK.
+</Tip>
+
+## Conclusion
+
+You have built a complete multi-agent RAG-enabled system — without writing a single line of embedding code or deploying a vector database. Here is what each layer contributed:
+
+- **Gemini File Search** handled chunking, embedding, storage, and semantic retrieval automatically.
+- **`FileSearchTool`** bridged the gap between the Gemini File Search API and the ADK tool interface.
+- **The Agent-as-a-Tool pattern** resolved the tool incompatibility constraint by isolating `FileSearch` and `GoogleSearch` in separate agents.
+- **ADK** provided the structure, orchestration, and Web UI to tie it all together.

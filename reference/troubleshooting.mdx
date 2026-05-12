@@ -1,0 +1,157 @@
+---
+title: "Troubleshoot common Gemini File Search setup errors"
+description: "Solutions for the most common errors and setup problems encountered when running the Gemini File Search codelab agents, notebooks, and ADK web UI."
+---
+
+This page covers the errors and configuration problems most likely to appear while working through the codelab. Each entry includes the exact symptom to look for and a concrete fix.
+
+<AccordionGroup>
+
+  <Accordion title="Tool incompatibility: 'Search as a tool and file search tool are not supported together'">
+    **Symptom**
+
+    When running `rag_agent_adk`, you see a `400 INVALID_ARGUMENT` error in the logs:
+
+    ```text
+    ERROR - An error occurred: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Search as a tool and file search tool are not supported together', 'status': 'INVALID_ARGUMENT'}}
+    Error: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Search as a tool and file search tool are not supported together', 'status': 'INVALID_ARGUMENT'}}
+    ```
+
+    **Cause**
+
+    The Gemini API does not allow the native `GoogleSearch` tool and the `FileSearch` tool to be attached to the same agent in the same request.
+
+    **Solution**
+
+    Use the Agent-as-a-Tool pattern: place `GoogleSearch` and `FileSearch` in separate specialist sub-agents (`SearchAgent` and `RagAgent`), then pass both to the root agent using `AgentTool`. This is exactly how `app/rag_agent_adk/agent.py` is implemented — each sub-agent sends its own independent request to the model, so the tools never appear together in a single call.
+
+    ```python
+    tools = [AgentTool(agent=search_agent), AgentTool(agent=rag_agent)]
+    ```
+  </Accordion>
+
+  <Accordion title="Store not found: 'Store X not found! RAG capabilities disabled'">
+    **Symptom**
+
+    The RAG agent starts successfully but logs a warning and answers questions without using the File Search store:
+
+    ```text
+    WARNING - Store 'demo-file-store' not found! RAG capabilities disabled.
+    ```
+
+    **Cause**
+
+    The value of `STORE_NAME` does not match the display name of any existing File Search Store in your account.
+
+    **Solution**
+
+    1. Check that `STORE_NAME` is set and matches the display name you used when creating the store in `notebooks/file_search_store.ipynb`. Display names are case-sensitive.
+    2. If you have not created a store yet, open the notebook and run the cell that creates the store. Then upload `data/story.md` using the upload cell.
+    3. After correcting the name, re-run `source .env` and restart the agent.
+  </Accordion>
+
+  <Accordion title="STORE_NAME not set: RAG is silently disabled">
+    **Symptom**
+
+    The RAG agent starts without error but never uses the File Search tool. The logs show:
+
+    ```text
+    WARNING - STORE_NAME env var not set. Skipping store lookup.
+    ```
+
+    **Cause**
+
+    The `STORE_NAME` environment variable was not exported before starting the agent. This can happen when `.env` was not sourced in the current terminal session.
+
+    **Solution**
+
+    1. Open `.env` and confirm it contains `export STORE_NAME="demo-file-store"` (or your chosen display name).
+    2. Run `source .env` in the same terminal session where you will run the agent.
+    3. Restart the agent.
+
+    <Note>
+    `source .env` must be run in every new terminal session. The variables are not persisted across sessions automatically.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Jupyter kernel not found when opening the notebook">
+    **Symptom**
+
+    When opening `notebooks/file_search_store.ipynb` in VS Code or Cloud Shell Editor, the kernel selection dialog shows no Python environments, or the `.venv` environment is missing.
+
+    **Cause**
+
+    The virtual environment has not been created yet because `make install` has not been run.
+
+    **Solution**
+
+    1. Run `make install` (or `uv sync --extra jupyter`) from the project root.
+    2. Re-open the notebook.
+    3. When prompted to select a kernel, choose **Python environments...** and select the `.venv` environment from the list.
+
+    If the `.venv` environment is still not listed, try reloading the editor window after `make install` completes.
+  </Accordion>
+
+  <Accordion title="uv not installed">
+    **Symptom**
+
+    Running `make install` prints `uv is not installed. Installing uv...` before proceeding, or a subsequent `uv` command fails with `command not found`.
+
+    **Cause**
+
+    `uv` is not installed on the system.
+
+    **Solution**
+
+    `make install` handles this automatically. It checks for `uv` and installs it via the official installer if it is missing:
+
+    ```bash
+    curl -LsSf https://astral.sh/uv/0.8.13/install.sh | sh
+    source $HOME/.local/bin/env
+    ```
+
+    Simply run `make install` and the full install — including `uv` itself — completes in one step. If you prefer to install `uv` manually first, follow the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/).
+  </Accordion>
+
+  <Accordion title="ADK web UI not accessible after make adk-playground">
+    **Symptom**
+
+    `make adk-playground` runs without error and reports that the server is listening, but navigating to the expected URL shows a connection refused or no response.
+
+    **Cause**
+
+    The access method differs depending on where the code is running.
+
+    **Solution**
+
+    - **Running locally**: open `http://127.0.0.1:8501` in your browser. Do not use `localhost` if it resolves differently on your system.
+    - **Running in Cloud Shell**: `127.0.0.1` is not directly accessible from your browser. Click **Web Preview** in the Cloud Shell Editor toolbar, select **Change port**, and enter `8501`. Cloud Shell will proxy the connection through a public URL.
+
+    If the UI loads but no agents appear in the dropdown, confirm that `app/basic_agent_adk/agent.py` and `app/rag_agent_adk/agent.py` each expose a module-level `root_agent` variable. The ADK runner discovers agents by scanning for this variable.
+  </Accordion>
+
+  <Accordion title="Model not found or invalid model ID">
+    **Symptom**
+
+    An agent fails on startup or on the first request with an error referencing an unknown or invalid model.
+
+    **Cause**
+
+    The `MODEL` environment variable is set to an invalid or misspelled model ID.
+
+    **Solution**
+
+    1. Check the value currently in your environment:
+       ```bash
+       echo $MODEL
+       ```
+    2. If the output is empty or incorrect, update `.env`:
+       ```bash
+       export MODEL="gemini-2.5-flash"
+       ```
+    3. Run `source .env` and restart the agent.
+
+    The default value used by all agents when `MODEL` is not set is `gemini-2.5-flash`. File Search and Google Search are supported on current Gemini 2.x models.
+  </Accordion>
+
+</AccordionGroup>

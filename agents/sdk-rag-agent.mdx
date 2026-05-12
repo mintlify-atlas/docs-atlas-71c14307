@@ -1,0 +1,243 @@
+---
+title: "Add Gemini File Search RAG to your SDK-based agent"
+description: "Replace Google Search with a Gemini File Search tool to give your agent accurate, grounded answers from your own documents using the sdk_rag_agent.py pattern."
+---
+
+With a populated File Search Store in place, the next step is to connect it to an agent. `app/sdk_rag_agent.py` is structurally similar to the basic SDK agent, but instead of attaching a Google Search tool it retrieves your File Search Store by name and passes it as a `FileSearch` tool. The result is an agent that can answer questions about your bespoke content accurately — using only the documents you've uploaded — without any manual chunking, embedding, or vector database work.
+
+## What changed from the basic agent
+
+The basic agent used:
+
+```python app/sdk_agent.py
+google_search_tool = types.Tool(google_search=types.GoogleSearch())
+```
+
+The RAG agent replaces that with:
+
+```python app/sdk_rag_agent.py
+file_search_tool = types.Tool(file_search=types.FileSearch(file_search_store_names=[store.name]))
+```
+
+Everything else — the `genai.Client()` initialization, the `client.chats.create(...)` call, and the REPL loop — follows the same pattern.
+
+## The full agent code
+
+```python app/sdk_rag_agent.py
+"""
+Native SDK RAG Agent with Gemini File Search Tool
+"""
+
+import logging
+import os
+
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+load_dotenv()
+
+STORE_NAME = os.getenv("STORE_NAME")
+logger.info(f"Store name: {STORE_NAME}")
+
+model = os.getenv("MODEL", "gemini-2.5-flash")
+logger.info(f"Using model: {model}")
+
+
+def get_store(client: genai.Client, store_name: str) -> types.FileSearchStore | None:
+    """Retrieve a store by display name"""
+    try:
+        for a_store in client.file_search_stores.list():
+            if a_store.display_name == store_name:
+                return a_store
+    except Exception as e:
+        logger.error(f"Error listing stores: {e}")
+    return None
+
+def main() -> None:
+    """
+    Runs a simple interactive chat with Gemini using the File Search Tool.
+    """
+    # 1. Initialize the client
+    client = genai.Client()
+
+    # 2. Retrieve the File Search Store
+    logger.info(f"Looking for File Search Store: {STORE_NAME}...")
+
+    store = None
+    if STORE_NAME:
+        store = get_store(client, STORE_NAME)
+    else:
+        logger.warning("STORE_NAME env var not set. Skipping store lookup.")
+
+    # 3. Build Tools List
+    tools_list = []
+
+    if store and store.name:
+        logger.info(f"Found store: {store.name}")
+        file_search_tool = types.Tool(file_search=types.FileSearch(file_search_store_names=[store.name]))
+        tools_list.append(file_search_tool)
+    else:
+        logger.warning(f"Store '{STORE_NAME}' not found! RAG capabilities disabled.")
+
+    # 4. Create the chat session
+    chat = client.chats.create(
+        model=model,
+        config=types.GenerateContentConfig(
+            tools=tools_list,
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=False),
+            temperature=0.7,
+            system_instruction="""You are a helpful assistant with access to a story knowledge base (via File Search).""",
+        ),
+    )
+
+    if store:
+        print(f"Connected to Store: {STORE_NAME}")
+    print("Type 'exit' or 'quit' to stop.")
+    print("------------------------------------------")
+
+    while True:
+        try:
+            user_input = input("User: ").strip()
+            if user_input.lower() in ("exit", "quit"):
+                print("Goodbye!")
+                break
+            if not user_input:
+                continue
+
+            # 4. Send message and get response
+            response = chat.send_message(user_input)
+
+            # 5. Print response
+            if response.text:
+                print(f"Agent: {response.text}")
+                # Print citations if available to prove RAG is working
+                if response.candidates and response.candidates[0].grounding_metadata:
+                    gm = response.candidates[0].grounding_metadata
+                    if gm.grounding_chunks:
+                        print(f"\n[Grounding] Found {len(gm.grounding_chunks)} chunks from File Search.")
+                    if gm.search_entry_point:
+                        print(f"[Grounding] Search Entry Point: {gm.search_entry_point.rendered_content}")
+            else:
+                print("Agent: [No text response]")
+
+        except Exception as e:
+            logger.error(f"An error occurred: {e}")
+            print(f"Error: {e}")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+## Code walkthrough
+
+### Retrieving the store with get_store
+
+```python app/sdk_rag_agent.py
+def get_store(client: genai.Client, store_name: str) -> types.FileSearchStore | None:
+    """Retrieve a store by display name"""
+    try:
+        for a_store in client.file_search_stores.list():
+            if a_store.display_name == store_name:
+                return a_store
+    except Exception as e:
+        logger.error(f"Error listing stores: {e}")
+    return None
+```
+
+`client.file_search_stores.list()` returns all stores in your project. The function matches on `display_name` — the human-readable name you set in your `.env` file as `STORE_NAME`. It returns the `FileSearchStore` object (which carries the resource `name` needed to build the tool) or `None` if no match is found.
+
+### Building the File Search tool
+
+```python app/sdk_rag_agent.py
+file_search_tool = types.Tool(file_search=types.FileSearch(file_search_store_names=[store.name]))
+tools_list.append(file_search_tool)
+```
+
+`store.name` is the unique resource identifier (e.g., `filestores/abc123`), not the display name. Passing it inside `file_search_store_names` tells Gemini which store to search when it needs to ground a response.
+
+If `get_store` returns `None` (because the store was not found), `tools_list` stays empty and the agent starts without RAG. A warning is logged so the problem is visible immediately.
+
+### Grounding metadata output
+
+After each response, the agent inspects `response.candidates[0].grounding_metadata` and prints two pieces of diagnostic information:
+
+```python app/sdk_rag_agent.py
+if gm.grounding_chunks:
+    print(f"\n[Grounding] Found {len(gm.grounding_chunks)} chunks from File Search.")
+if gm.search_entry_point:
+    print(f"[Grounding] Search Entry Point: {gm.search_entry_point.rendered_content}")
+```
+
+- **Grounding chunks**: the number of document chunks the File Search tool retrieved and used to construct the answer. A non-zero count confirms RAG is active.
+- **Search entry point**: the rendered query Gemini issued against your store, useful for understanding how the model interpreted the question.
+
+## Running the agent
+
+<CodeGroup>
+
+```bash make
+make sdk-rag-agent
+```
+
+```bash uv
+uv run python app/sdk_rag_agent.py
+```
+
+</CodeGroup>
+
+## Demo walkthrough
+
+<Steps>
+  <Step title="Confirm the store is connected">
+    When the agent starts, look for the confirmation line:
+
+    ```text
+    Connected to Store: demo-file-store
+    ```
+
+    If you see a warning about the store not being found instead, check that `STORE_NAME` in your `.env` matches the display name you used when creating the store in the notebook.
+  </Step>
+  <Step title="Ask the question that previously failed">
+    Ask the same question the basic agent could not answer:
+
+    ```text
+    > Who pilots the 'Too Many Pies' ship?
+    ```
+
+    This time the agent queries your File Search Store, retrieves the relevant chunks from `data/story.md`, and returns the correct, story-specific answer.
+  </Step>
+  <Step title="Inspect the grounding metadata">
+    After the answer you'll see output like:
+
+    ```text
+    [Grounding] Found 5 chunks from File Search.
+    [Grounding] Search Entry Point: ...
+    ```
+
+    Five retrieved chunks means the File Search tool found five relevant passages in your story and used them to ground the response. This is confirmation that RAG is working correctly.
+  </Step>
+  <Step title="Exit the agent">
+    ```text
+    > quit
+    Goodbye!
+    ```
+  </Step>
+</Steps>
+
+## Key insight: STORE_NAME must match the display name
+
+<Warning>
+  The `STORE_NAME` environment variable must exactly match the `display_name` you gave the store when you created it in the notebook. If the names differ, `get_store` returns `None`, RAG is silently disabled, and the agent behaves like the basic search-only version.
+</Warning>
+
+The `get_store` function looks up stores by `display_name`, not by the internal resource name. As long as your `.env` value and the notebook creation cell use the same string, the lookup will succeed every time.
+
+## What's next
+
+This agent uses File Search in place of Google Search. If you need both — answering questions from your documents _and_ from the web — the two tools cannot be attached to the same agent in a single request. The solution is the Agent-as-a-Tool pattern used in the ADK agents covered in the next section of this codelab.

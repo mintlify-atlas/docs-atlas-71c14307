@@ -1,0 +1,148 @@
+---
+title: "Gemini File Search: managed RAG without the infrastructure"
+description: "Gemini File Search is a managed RAG pipeline and agent tool in the Gemini API. Upload files and skip chunking, embedding selection, and vector database setup."
+---
+
+Gemini File Search combines two things that RAG practitioners typically have to wire together themselves: a managed pipeline that turns raw documents into searchable embeddings, and an agent tool that queries those embeddings at inference time. Because it is built directly into the Gemini API, there is nothing extra to enable, no separate product to deploy, and no infrastructure to maintain. You create a store, upload your files, attach the store to your agent as a tool, and you have RAG.
+
+## What Gemini File Search is
+
+Gemini File Search is two things working together:
+
+<CardGroup cols={2}>
+  <Card title="Fully-managed RAG system" icon="database">
+    You provide the files. Gemini handles chunking, selecting the embedding model (Gemini Embeddings), generating the vectors, storing them, and building the search index. None of that pipeline is your problem.
+  </Card>
+  <Card title="Agent tool" icon="wrench">
+    The File Search Store is exposed as a first-class tool that you attach to your agent definition. The agent automatically queries the store when it needs information from your documents.
+  </Card>
+</CardGroup>
+
+<Info>
+  Gemini File Search is built into the Gemini API itself — you do not need to enable any additional APIs or deploy any separate products to use it. It is available out of the box.
+</Info>
+
+## Key features
+
+<CardGroup cols={3}>
+  <Card title="Zero infrastructure decisions" icon="circle-check">
+    No vector database to choose, provision, or operate. The chunking strategy, embedding model, and storage layer are all managed for you.
+  </Card>
+  <Card title="Broad document support" icon="file-lines">
+    A wide range of document formats are supported natively. Upload raw files — including PDFs with embedded images and tables — without any pre-processing.
+  </Card>
+  <Card title="Custom metadata" icon="tag">
+    You can attach arbitrary key-value metadata to any uploaded file. This metadata can be used at query time to filter which files the tool searches over.
+  </Card>
+</CardGroup>
+
+### Supported document types
+
+<Accordion title="View all supported file formats" icon="file">
+
+Gemini File Search supports a large number of document types out of the box, including but not limited to:
+
+| Format | Notes |
+|--------|-------|
+| PDF | Text, images, and tables — no pre-processing required |
+| DOCX | Microsoft Word documents |
+| Excel | Spreadsheet files |
+| SQL | SQL script files |
+| JSON | Structured data files |
+| Jupyter notebooks | `.ipynb` files |
+| HTML | Web pages and HTML documents |
+| Markdown | `.md` files |
+| CSV | Comma-separated value files |
+| Zip archives | Container files; contents are extracted and indexed |
+
+</Accordion>
+
+<Tip>
+  Because PDFs with embedded images and tables are supported without pre-processing, you can upload raw enterprise documents — slide decks, reports, technical specs — and let Gemini handle the extraction.
+</Tip>
+
+## Where your data lives: the File Search Store
+
+When you upload files, Gemini File Search creates chunks, generates vector embeddings for each chunk, and places them into a **File Search Store** — a fully-managed container for your embeddings. You do not need to know or care how this is implemented under the hood.
+
+You interact with the store programmatically:
+
+- **Create** a named store once.
+- **Upload** files to it whenever your knowledge base changes.
+- **Attach** the store to one or more agents as a tool.
+
+A single store can serve multiple agents, and a single agent can be given multiple stores.
+
+## Pricing
+
+<CardGroup cols={2}>
+  <Card title="Storing and querying: free" icon="piggy-bank">
+    There is no charge for storing embeddings in a File Search Store or for querying them at inference time. You can keep embeddings as long as you like.
+  </Card>
+  <Card title="Creating embeddings: $0.15 / 1M tokens" icon="coins">
+    The only billable operation is generating embeddings at upload/indexing time. At the time of writing, this costs $0.15 per 1 million tokens.
+  </Card>
+</CardGroup>
+
+<Note>
+  Completing the codelab is not expected to cost more than a few pennies. Embedding creation for small document sets is very inexpensive.
+</Note>
+
+## Two phases of use
+
+Using Gemini File Search in a real application follows two distinct phases:
+
+### Phase 1 — Create and manage the store
+
+This is a one-time setup step that you repeat only when your document set changes (new files, updated content, deleted records). It is not part of your deployed application's runtime path.
+
+A Jupyter notebook is a practical way to run this phase on demand — locally, in Cloud Shell, or on Google Colab. The notebook approach lets you:
+
+- Create the File Search Store by name
+- Upload documents to the store
+- View the store's contents and verify indexing
+- Delete outdated file versions before re-uploading updated ones
+
+```python
+# Retrieve a store by display name
+def get_store(client: genai.Client, store_name: str) -> types.FileSearchStore | None:
+    """Retrieve a store by display name"""
+    try:
+        for a_store in client.file_search_stores.list():
+            if a_store.display_name == store_name:
+                return a_store
+    except Exception as e:
+        logger.error(f"Error listing stores: {e}")
+    return None
+```
+
+### Phase 2 — Query the store from your agent
+
+Once the store exists and is populated, attaching it to an agent is a single line of code:
+
+```python
+file_search_tool = types.Tool(
+    file_search=types.FileSearch(
+        file_search_store_names=[store.name]
+    )
+)
+```
+
+The agent then queries the store automatically whenever it determines that your documents are the right source for the current question. From the agent's perspective, this is no different from any other tool call.
+
+<Note>
+  At the time of writing, the native `GoogleSearch` tool and the `FileSearch` tool cannot be used together in the same agent. If you need both, use the **Agent-as-a-Tool** pattern: implement a dedicated `RagAgent` that uses File Search and a separate `SearchAgent` that uses Google Search, then orchestrate them from a root agent.
+</Note>
+
+## How it compares to traditional RAG
+
+| Concern | Traditional RAG | Gemini File Search |
+|---------|----------------|--------------------|
+| Vector database | You choose, provision, and operate one | Fully managed, no decision required |
+| Chunking | You write and tune a chunking script | Handled automatically |
+| Embedding model | You select and call one | Gemini Embeddings, abstracted |
+| Storage cost | Varies by provider | Free |
+| Embedding creation cost | Varies by provider and model | $0.15 per 1M tokens |
+| Integration with agents | Manual wiring | First-class tool primitive |
+
+The next sections of the codelab walk through both phases in detail, starting with setting up your development environment and creating your first File Search Store.

@@ -1,0 +1,181 @@
+---
+title: "Build a Google Agent Development Kit agent with Search"
+description: "Convert a raw SDK agent to the Google Agent Development Kit and explore your multi-agent system interactively using the ADK Web UI."
+---
+
+The Google Agent Development Kit (ADK) is an open-source framework for building and orchestrating multi-agent systems. Compared to using the raw `google-genai` SDK, ADK gives you declarative agent definitions, built-in state management, a ready-made web UI for interactive testing, and a deployment path that requires no additional UI code. This page converts the baseline Google Search agent into an ADK agent and introduces the two-agent structure that makes delegation visible and controllable.
+
+## Why ADK over the raw SDK?
+
+The raw SDK is great for quick scripts, but it lacks structure for anything beyond a single loop. ADK provides:
+
+- **Declarative agents** — define each agent's model, name, description, instruction, and tools in one `Agent(...)` call.
+- **Multi-agent orchestration** — compose specialist agents and wire them together using the `AgentTool` wrapper.
+- **ADK Web UI** — a zero-code browser interface that shows agent delegation in real time.
+- **`adk run` / `adk web` CLI** — a consistent way to launch, reload, and serve agents during development.
+
+## The two-agent structure
+
+The `basic_agent_adk` implementation in `app/basic_agent_adk/agent.py` defines two agents:
+
+| Agent | Role | Tools |
+|---|---|---|
+| `SearchAgent` | Specialist — runs Google Search | `google_search` |
+| `root_agent` (`basic_agent_adk`) | Orchestrator — handles user interaction, delegates to `SearchAgent` | `AgentTool(agent=search_agent)` |
+
+The root agent does not call `google_search` directly. Instead, it treats `SearchAgent` as a tool using `AgentTool`. This keeps concerns separated and makes the delegation visible in the ADK Web UI.
+
+## The code
+
+Here is the complete `app/basic_agent_adk/agent.py`:
+
+```python app/basic_agent_adk/agent.py
+"""
+ADK Basic Agent (Google Search Only)
+
+This module defines an agent using the Google Agent Development Kit (ADK).
+
+WHAT:
+A structured agent that uses Gemini and Google Search to answer user queries.
+It features a "fail-fast" mechanism to prevent infinite search loops on fictional topics.
+
+WHY:
+To demonstrate the ADK's `Agent` and `App` architectural patterns. ADK provides
+structure, state management, and easier deployment (via `adk run`) compared to
+raw scripts.
+
+HOW:
+1.  Defines a `SearchAgent` subclass (mostly for declarative structure).
+2.  Defines a `RootAgent` that delegates to the `SearchAgent`.
+3.  Uses strict system instructions to "FAIL FAST" if search yields no results.
+4.  Exposes an `app` object that the ADK runner discovers and serves.
+"""
+
+import logging
+import os
+
+from google.adk.agents import Agent
+from google.adk.models import Gemini
+from google.adk.tools import (
+    AgentTool,
+    FunctionTool,  # noqa: F401
+    google_search,  # built-in Google Search tool
+)
+from google.genai import types
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+model = os.getenv("MODEL", "gemini-2.5-flash")
+logger.info(f"Using model: {model}")
+
+
+search_agent = Agent(
+    model=model,
+    name="SearchAgent",
+    description="Agent to perform Google Search",
+    instruction="You're a specialist in Google Search. Only perform one search. Fail fast if no relevant results are found.",
+    tools=[google_search],
+)
+
+root_agent = Agent(
+    name="basic_agent_adk",
+    description="You are a helpful AI assistant designed to provide accurate and useful information",
+    model=Gemini(
+        model=model,
+        retry_options=types.HttpRetryOptions(attempts=3),
+    ),
+    instruction="""You are a helpful AI assistant designed to provide accurate and useful information.
+    If you don't know the answer, use the SearchAgent to perform a Google search.
+    Do not attempt to search more than ONCE.
+    If the search yields no relevant results or returns unrelated content, you MUST immediately respond with: "I could not find any information about that."
+    Do NOT retry the search with different terms. Do NOT ask for clarification. FAIL FAST.""",
+    tools=[AgentTool(agent=search_agent)],
+)
+```
+
+### Key patterns
+
+**`Agent(...)`** — the core ADK building block. Every agent declares its `model`, `name`, `description`, `instruction`, and `tools` up front. The `description` is what the orchestrating agent reads to decide whether to delegate.
+
+**`AgentTool(agent=search_agent)`** — wraps a complete `Agent` as a callable tool. The root agent invokes `SearchAgent` the same way it would call any other tool. This is the **Agent-as-a-Tool** pattern.
+
+**`Gemini(model=model, retry_options=...)`** — the root agent uses an explicit `Gemini` model object instead of a plain model ID string, so retry behaviour can be configured.
+
+### The fail-fast system instruction
+
+The root agent's instruction includes an explicit fail-fast directive:
+
+```text
+If the search yields no relevant results or returns unrelated content, you MUST immediately respond with: "I could not find any information about that."
+Do NOT retry the search with different terms. Do NOT ask for clarification. FAIL FAST.
+```
+
+Without this, the agent may loop — retrying searches with rephrased queries when the information simply does not exist on the public internet. The instruction prevents that by making the expected failure response explicit and prohibiting retries.
+
+## Launch the ADK Web UI
+
+<Steps>
+  <Step title="Start the web server">
+    Run the following from the project root:
+
+    <CodeGroup>
+      ```bash make
+      make adk-playground
+      ```
+
+      ```bash uv run
+      uv run adk web app --port 8501 --reload_agents
+      ```
+    </CodeGroup>
+
+    The command points `adk web` at the `app/` folder. ADK automatically discovers any subpackage that exposes a `root_agent`.
+  </Step>
+
+  <Step title="Open the browser">
+    - **Local environment**: navigate to `http://127.0.0.1:8501`
+    - **Cloud Shell**: click **Web preview** in the toolbar and change the port to `8501`
+  </Step>
+
+  <Step title="Select the agent">
+    In the top-left dropdown, select **`basic_agent_adk`**.
+  </Step>
+</Steps>
+
+<Note>
+The `--reload_agents` flag makes ADK reload agent code on each request, so you can edit `agent.py` and see changes immediately without restarting the server.
+</Note>
+
+## Try it out
+
+### General knowledge query (succeeds)
+
+Ask a question that requires a live Google Search, such as:
+
+```text
+What is the stock price of Google?
+```
+
+The ADK Web UI shows the root agent delegating to `SearchAgent` in real time. `SearchAgent` performs one Google Search, returns the result, and the root agent summarises it for you.
+
+### Bespoke knowledge query (fails fast)
+
+Now ask a question that requires knowledge of _The Wormhole Incursion_ story — information that does not exist on the public internet:
+
+```text
+Who pilots the 'Too Many Pies' ship?
+```
+
+The agent tries the Google Search and finds nothing relevant. Because of the fail-fast instruction, it responds immediately with:
+
+```text
+I could not find any information about that.
+```
+
+<Tip>
+Watch the event trace in the ADK Web UI. You can see exactly when the root agent calls `SearchAgent`, what `SearchAgent` returns, and the moment the root agent decides to fail fast. This observability is one of the key benefits of the ADK over a raw SDK loop.
+</Tip>
+
+## Next step
+
+The agent can answer general questions, but it has no knowledge of your bespoke documents. The next page shows you how to add a File Search Store to a multi-agent ADK system so it can answer both kinds of question.
